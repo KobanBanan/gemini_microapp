@@ -162,18 +162,12 @@ def main():
     # Upload mode selection
     upload_mode = st.radio(
         "Choose document source:",
-        ["Google Drive Files", "Local Upload"],
-        index=["google_drive", "local_upload"].index(st.session_state.upload_mode),
+        ["google_drive", "local_upload"],
+        format_func=lambda x: "Google Drive Files" if x == "google_drive" else "Local Upload",
+        key="upload_mode",
         horizontal=True,
         help="Select how you want to provide the document"
     )
-
-    # Update session state
-    mode_map = {
-        "Google Drive Files": "google_drive",
-        "Local Upload": "local_upload"
-    }
-    st.session_state.upload_mode = mode_map[upload_mode]
 
     # Document input based on selected mode
     doc_url = ""
