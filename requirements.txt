@@ -1,0 +1,11 @@
+streamlit
+google-genai
+pandas
+requests
+watchdog
+google-auth
+google-api-python-client
+google-auth[requests]
+python-docx
+PyPDF2
+python-magic-bin
