@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set environment variables
-export GEMINI_API_KEY="AIzaSyAozIa0WguhefSAAYpK3ksXFbIc9KuDJyI"
+export GEMINI_API_KEY=""
 
 echo "===== Google Docs Analyzer ====="
 echo ""
@@ -15,5 +15,5 @@ echo "Press Ctrl+C to stop the application"
 echo ""
 
 # Start main application
-echo "Starting application on port 8501..."
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+echo "Starting application on port 8502..."
+streamlit run app.py --server.port 8502 --server.address 0.0.0.0
