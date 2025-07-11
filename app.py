@@ -35,26 +35,28 @@ def main():
         config['cookie']['expiry_days']
     )
 
-    # OAuth2 Google Authentication
-    try:
-        authenticator.experimental_guest_login('Login with Google',
-                                               provider='google',
-                                               oauth2=config['oauth2'])
-    except Exception as e:
-        st.error(f"OAuth2 setup error: {str(e)}")
-        st.stop()
-
     # Get authentication status from session state
     name = st.session_state.get('name')
     authentication_status = st.session_state.get('authentication_status')
     username = st.session_state.get('username')
 
     # Check authentication status
-    if authentication_status == False:
-        st.error('Username/password is incorrect')
+    if authentication_status is None:
+        # Show OAuth2 Google Login
+        st.title("Google Docs Analyzer with Gemini AI")
+        st.markdown("---")
+        st.write("Please authenticate with Google to access your documents")
+        
+        try:
+            authenticator.experimental_guest_login('Login with Google',
+                                                   provider='google',
+                                                   oauth2=config['oauth2'])
+        except Exception as e:
+            st.error(f"OAuth2 error: {str(e)}")
+            st.stop()
         return
-    elif authentication_status is None:
-        st.warning('Please enter your username and password')
+    elif authentication_status == False:
+        st.error('Authentication failed')
         return
     elif authentication_status:
         # User is authenticated, show main app
