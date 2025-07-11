@@ -54,11 +54,11 @@ def main():
         except Exception as e:
             st.error(f"OAuth2 error: {str(e)}")
             st.write("**Debug info:**")
-            st.write(f"Current URL: {st.experimental_get_query_params()}")
+            st.write(f"Current URL: {st.query_params}")
             st.write(f"Config redirect_uri: {config['oauth2']['google']['redirect_uri']}")
             # Показываем кнопку даже при ошибке, чтобы пользователь мог попробовать
             if st.button("Try Login with Google"):
-                st.experimental_rerun()
+                st.rerun()
         return
     elif authentication_status == False:
         st.error('Authentication failed')
