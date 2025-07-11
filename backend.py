@@ -102,9 +102,13 @@ def process_uploaded_file(uploaded_file):
     return processor.process_uploaded_file(uploaded_file)
 
 
-def process_google_drive_file(url_or_id):
-    """Process file from Google Drive"""
-    processor = DocumentProcessor()
+def process_google_drive_file(url_or_id, oauth_manager=None):
+    """Process file from Google Drive using OAuth2 credentials"""
+    credentials = None
+    if oauth_manager and oauth_manager.is_authenticated():
+        credentials = oauth_manager.get_credentials()
+    
+    processor = DocumentProcessor(oauth_credentials=credentials)
     return processor.process_google_drive_url(url_or_id)
 
 
@@ -114,8 +118,8 @@ def get_document_content(source_type, source_data, oauth_manager=None):
         # Use existing logic for Google Docs
         return fetch_doc_content(source_data, oauth_manager)
     elif source_type == "google_drive":
-        # Use new logic for Google Drive files
-        return process_google_drive_file(source_data)
+        # Use new logic for Google Drive files with OAuth2
+        return process_google_drive_file(source_data, oauth_manager)
     elif source_type == "uploaded_file":
         # Process uploaded file
         return process_uploaded_file(source_data)

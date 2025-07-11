@@ -24,16 +24,25 @@ def main():
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 
-    # Create authenticator object
+    # Create authenticator object for OAuth2 only
+    # Minimal credentials structure required by streamlit_authenticator
+    minimal_credentials = {'usernames': {}}
+    
     authenticator = Authenticate(
-        config['credentials'],
+        minimal_credentials,
         config['cookie']['name'],
         config['cookie']['key'],
         config['cookie']['expiry_days']
     )
 
-    # Authentication widget
-    authenticator.login(location='main')
+    # OAuth2 Google Authentication
+    try:
+        authenticator.experimental_guest_login('Login with Google',
+                                               provider='google',
+                                               oauth2=config['oauth2'])
+    except Exception as e:
+        st.error(f"OAuth2 setup error: {str(e)}")
+        st.stop()
 
     # Get authentication status from session state
     name = st.session_state.get('name')
@@ -150,23 +159,16 @@ def main():
 
             st.markdown("---")
 
-            # Google Authentication
-            if oauth_manager.has_client_config():
-                if oauth_manager.is_authenticated():
-                    st.success("Google authenticated")
-
-                    service_email = oauth_manager.get_service_account_email()
-                    if service_email:
-                        st.info("**For private documents:**")
-                        st.code(service_email)
-                        st.caption("Share your document with this email (Viewer access)")
-
-                else:
-                    st.error("Service account not loaded")
-                    st.info("Please check your creds.json file")
+            # Google OAuth2 Status
+            if oauth_manager.is_authenticated():
+                user_email = oauth_manager.get_user_email()
+                st.success("✅ Google authenticated")
+                if user_email:
+                    st.info(f"**Logged in as:** {user_email}")
+                st.caption("You can access your Google Drive documents")
             else:
-                st.error("Google credentials not found")
-                st.info("Please check your creds.json file")
+                st.warning("⚠️ Google OAuth2 required")
+                st.info("Please login with Google to access your documents")
 
             st.markdown("---")
 
@@ -300,9 +302,9 @@ def main():
 
                     # Use new unified function to get document content
                     if st.session_state.upload_mode == "google_drive":
-                        doc_content = get_document_content("google_drive", doc_url)
+                        doc_content = get_document_content("google_drive", doc_url, oauth_manager)
                     elif st.session_state.upload_mode == "local_upload":
-                        doc_content = get_document_content("uploaded_file", uploaded_file)
+                        doc_content = get_document_content("uploaded_file", uploaded_file, oauth_manager)
 
                     st.success("Document loaded successfully")
 

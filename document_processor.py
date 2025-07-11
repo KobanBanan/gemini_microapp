@@ -1,11 +1,10 @@
 import io
-import os
 import re
-from typing import Union, BinaryIO
+from typing import Union, BinaryIO, Optional
 
 import PyPDF2
 import docx
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -13,23 +12,19 @@ from googleapiclient.http import MediaIoBaseDownload
 class DocumentProcessor:
     """Class for processing various types of documents"""
 
-    def __init__(self, credentials_file: str = 'creds.json'):
-        self.credentials_file = credentials_file
-        self.credentials = None
+    def __init__(self, oauth_credentials: Optional[Credentials] = None):
+        self.credentials = oauth_credentials
         self.drive_service = None
-        self._load_credentials()
+        if self.credentials:
+            self._load_drive_service()
 
-    def _load_credentials(self):
-        """Load credentials for Google Drive API"""
+    def _load_drive_service(self):
+        """Load Google Drive service with OAuth2 credentials"""
         try:
-            if os.path.exists(self.credentials_file):
-                self.credentials = service_account.Credentials.from_service_account_file(
-                    self.credentials_file,
-                    scopes=["https://www.googleapis.com/auth/drive.readonly"]
-                )
+            if self.credentials:
                 self.drive_service = build("drive", "v3", credentials=self.credentials, cache_discovery=False)
         except Exception as e:
-            print(f"Error loading credentials: {e}")
+            print(f"Error loading Drive service: {e}")
 
     def extract_text_from_docx(self, file_content: Union[bytes, BinaryIO]) -> str:
         """Extract text from DOCX file"""
@@ -129,9 +124,9 @@ class DocumentProcessor:
         raise ValueError(f"Could not extract ID from URL: {url_or_id}")
 
     def download_from_google_drive(self, file_id: str) -> str:
-        """Download and process file from Google Drive"""
+        """Download and process file from Google Drive using OAuth2 credentials"""
         if not self.drive_service:
-            raise Exception("Google Drive API not initialized. Check creds.json file")
+            raise Exception("Google Drive API not initialized. Please authenticate with Google.")
 
         try:
             # Get file metadata
@@ -183,10 +178,18 @@ class DocumentProcessor:
                     return self.extract_text_from_txt(file_content)
 
         except Exception as e:
-            raise Exception(f"Error downloading file from Google Drive: {e}")
+            error_msg = str(e).lower()
+            if "not found" in error_msg or "permission" in error_msg or "forbidden" in error_msg:
+                raise Exception(
+                    "File access denied. You don't have permission to access this file, or it doesn't exist.")
+            else:
+                raise Exception(f"Error downloading file from Google Drive: {e}")
 
     def process_google_drive_url(self, url_or_id: str) -> str:
-        """Process Google Drive URL or ID"""
+        """Process Google Drive URL or ID using OAuth2 credentials"""
+        if not self.credentials:
+            raise Exception("OAuth2 credentials required for Google Drive access. Please authenticate with Google.")
+
         file_id = self.extract_google_drive_id(url_or_id)
         return self.download_from_google_drive(file_id)
 

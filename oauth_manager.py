@@ -1,82 +1,113 @@
-import json
-import os
-
 import requests
 import streamlit as st
-from google.oauth2 import service_account
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 
 class GoogleOAuthManager:
-    def __init__(self, credentials_file='creds.json'):
-        self.credentials_file = credentials_file
+    def __init__(self):
         self.scopes = [
             'https://www.googleapis.com/auth/documents.readonly',
-            'https://www.googleapis.com/auth/drive.readonly'
+            'https://www.googleapis.com/auth/drive.readonly',
+            'https://www.googleapis.com/auth/userinfo.email',
+            'https://www.googleapis.com/auth/userinfo.profile'
         ]
         self.credentials = None
-        self.service_account_email = None
-        self.is_service_account = False
+        self.user_email = None
 
-        # Load credentials automatically
-        self.load_credentials()
+        # Load credentials from streamlit session state (OAuth2)
+        self.load_oauth_credentials()
 
-    def load_credentials(self):
-        """Load Service Account credentials from creds.json"""
+    def load_oauth_credentials(self):
+        """Load OAuth2 credentials from Streamlit session state"""
         try:
-            if not os.path.exists(self.credentials_file):
-                console.log(f"Credentials file not found: {self.credentials_file}")
-                return False
+            # Get OAuth2 token from streamlit session state
+            if 'oauth_token' in st.session_state and st.session_state.oauth_token:
+                token_data = st.session_state.oauth_token
 
-            with open(self.credentials_file, 'r') as f:
-                creds_data = json.load(f)
-
-            # Check if it's a service account
-            if creds_data.get('type') == 'service_account':
-                self.is_service_account = True
-                self.service_account_email = creds_data.get('client_email')
-
-                # Create service account credentials
-                self.credentials = service_account.Credentials.from_service_account_file(
-                    self.credentials_file,
+                # Create credentials object from OAuth2 token
+                self.credentials = Credentials(
+                    token=token_data.get('access_token'),
+                    refresh_token=token_data.get('refresh_token'),
+                    id_token=token_data.get('id_token'),
+                    token_uri='https://oauth2.googleapis.com/token',
+                    client_id=token_data.get('client_id'),
+                    client_secret=token_data.get('client_secret'),
                     scopes=self.scopes
                 )
 
-                console.log(f"Service account loaded: {self.service_account_email}")
+                # Extract user email from token
+                if 'email' in token_data:
+                    self.user_email = token_data['email']
+
+                console.log(f"OAuth2 credentials loaded for: {self.user_email}")
                 return True
             else:
-                console.log("Not a service account credentials file")
+                console.log("No OAuth2 token found in session state")
                 return False
 
         except Exception as e:
-            console.log(f"Error loading credentials: {str(e)}")
+            console.log(f"Error loading OAuth2 credentials: {str(e)}")
             return False
 
     def is_authenticated(self):
-        """Check if service account is loaded"""
-        return self.credentials is not None and self.is_service_account
+        """Check if user is authenticated via OAuth2"""
+        return (
+                self.credentials is not None and
+                st.session_state.get('authentication_status') is True and
+                'oauth_token' in st.session_state
+        )
 
-    def get_service_account_email(self):
-        """Get service account email for sharing documents"""
-        return self.service_account_email
+    def get_user_email(self):
+        """Get authenticated user's email"""
+        if self.user_email:
+            return self.user_email
+
+        # Try to get email from session state
+        if 'email' in st.session_state:
+            return st.session_state['email']
+
+        return None
 
     def has_client_config(self):
-        """Check if credentials are loaded"""
+        """Check if OAuth2 credentials are loaded"""
         return self.credentials is not None
 
     def get_credentials(self):
-        """Get current credentials"""
+        """Get current OAuth2 credentials"""
         return self.credentials
 
+    def refresh_credentials(self):
+        """Refresh OAuth2 credentials if needed"""
+        if self.credentials and self.credentials.expired and self.credentials.refresh_token:
+            try:
+                self.credentials.refresh(Request())
+                console.log("OAuth2 credentials refreshed")
+                return True
+            except Exception as e:
+                console.log(f"Error refreshing credentials: {str(e)}")
+                return False
+        return True
+
     def logout(self):
-        """Clear credentials (reload from file)"""
-        console.log("Reloading credentials...")
-        self.load_credentials()
+        """Clear OAuth2 credentials"""
+        console.log("Clearing OAuth2 credentials...")
+        self.credentials = None
+        self.user_email = None
+
+        # Clear session state
+        if 'oauth_token' in st.session_state:
+            del st.session_state['oauth_token']
 
     def fetch_authenticated_doc_content(self, doc_url):
-        """Fetch document content using service account credentials"""
+        """Fetch document content using user's OAuth2 credentials"""
         if not self.credentials:
-            raise Exception("Service account not loaded. Please check creds.json file.")
+            raise Exception("User not authenticated. Please login with Google.")
+
+        # Refresh credentials if needed
+        if not self.refresh_credentials():
+            raise Exception("Failed to refresh credentials. Please login again.")
 
         # Extract document ID
         import re
@@ -88,7 +119,7 @@ class GoogleOAuthManager:
         doc_id = match.group(1)
 
         try:
-            # Build Google Docs API service
+            # Build Google Docs API service with user credentials
             service = build('docs', 'v1', credentials=self.credentials)
 
             # Get document content
@@ -107,17 +138,20 @@ class GoogleOAuthManager:
         except Exception as e:
             error_msg = str(e).lower()
             if "not found" in error_msg or "permission" in error_msg or "forbidden" in error_msg:
-                raise Exception(f"Document access denied. Please share the document with: {self.service_account_email}")
+                raise Exception(
+                    f"Document access denied. You don't have permission to access this document, or it doesn't exist.")
             else:
                 # Try export method as fallback
                 try:
                     export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
 
-                    # Use credentials to make authenticated request
+                    # Use OAuth2 credentials to make authenticated request
                     authed_session = requests.Session()
 
-                    # Get access token
-                    self.credentials.refresh(requests.Request())
+                    # Refresh credentials if needed
+                    if not self.refresh_credentials():
+                        raise Exception("Failed to refresh credentials")
+
                     authed_session.headers.update({
                         'Authorization': f'Bearer {self.credentials.token}'
                     })
@@ -126,20 +160,21 @@ class GoogleOAuthManager:
                     if response.status_code == 200:
                         return response.text
                     elif response.status_code == 403:
-                        raise Exception(
-                            f"Document access denied. Please share the document with: {self.service_account_email}")
+                        raise Exception("Document access denied. You don't have permission to access this document.")
                     else:
                         raise Exception(f"Failed to fetch document: {response.status_code}")
 
                 except Exception as export_error:
-                    raise Exception(
-                        f"Document access denied. Please share the document with: {self.service_account_email}")
+                    raise Exception("Document access denied. You don't have permission to access this document.")
 
 
 def get_oauth_manager():
     """Get or create OAuth manager instance"""
     if 'oauth_manager' not in st.session_state:
         st.session_state.oauth_manager = GoogleOAuthManager()
+    else:
+        # Reload credentials in case they changed
+        st.session_state.oauth_manager.load_oauth_credentials()
     return st.session_state.oauth_manager
 
 
