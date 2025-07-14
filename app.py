@@ -55,6 +55,8 @@ def main():
             st.session_state.token = result.get('token')
             st.success("✅ Successfully authenticated!")
             st.rerun()
+            
+        # Stop execution here until user authenticates
         return
 
     # User is authenticated - show main app
@@ -143,22 +145,11 @@ def main():
     with st.sidebar:
         # User info and logout
         user_email = token.get('userinfo', {}).get('email', 'Unknown')
-        st.write(f'✅ **Welcome!** {user_email}')
         
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Refresh Token"):
-                # Refresh the token
-                token = oauth2.refresh_token(token)
-                st.session_state.token = token
-                st.success("Token refreshed!")
-                st.rerun()
-        
-        with col2:
-            if st.button("🚪 Logout"):
-                # Clear token and rerun
-                del st.session_state.token
-                st.rerun()
+        if st.button("🚪 Logout"):
+            # Clear token and rerun
+            del st.session_state.token
+            st.rerun()
         
         st.markdown("---")
 
@@ -179,7 +170,6 @@ def main():
 
         # Google OAuth2 Status
         st.success("✅ Google OAuth2 authenticated")
-        st.info(f"**Logged in as:** {user_email}")
         st.caption("You can access your Google Drive documents")
 
         st.markdown("---")
