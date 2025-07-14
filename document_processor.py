@@ -192,13 +192,3 @@ class DocumentProcessor:
 
         file_id = self.extract_google_drive_id(url_or_id)
         return self.download_from_google_drive(file_id)
-
-    @staticmethod
-    def get_supported_file_types() -> list:
-        """Return list of supported file types"""
-        return [
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # DOCX
-            "application/pdf",  # PDF
-            "text/plain",  # TXT
-            "docx", "pdf", "txt"  # By extensions
-        ]
