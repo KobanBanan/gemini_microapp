@@ -315,24 +315,37 @@ def main():
         st.markdown("---")
         st.subheader("Analysis Results")
 
-        # Show JSON result
+        # Show CSV result as DataFrame
         with st.expander("View Results", expanded=True):
             try:
                 parsed_result = json.loads(st.session_state.analysis_result)
-                st.json(parsed_result)
-
+                
                 # Statistics
                 if isinstance(parsed_result, list):
                     st.info(f"Errors found: {len(parsed_result)}")
+                
+                # Convert to DataFrame and display as table
+                import pandas as pd
+                
+                if isinstance(parsed_result, list) and len(parsed_result) > 0:
+                    # Convert list of dicts to DataFrame
+                    df = pd.DataFrame(parsed_result)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    # If not a list, show as text
+                    st.text_area("Analysis Result", st.session_state.analysis_result, height=300)
 
             except json.JSONDecodeError:
                 st.text_area("Analysis Result", st.session_state.analysis_result, height=300)
+            except Exception as e:
+                # Fallback to text display if DataFrame conversion fails
+                st.text_area("Analysis Result", st.session_state.analysis_result, height=300)
 
-        # Download buttons under results - CSV first as primary
+        # Download buttons under results
         col1, col2 = st.columns(2)
 
         with col1:
-            # Download CSV (primary)
+            # Download CSV
             try:
                 csv_data = convert_to_csv(st.session_state.analysis_result)
                 st.download_button(
@@ -340,14 +353,13 @@ def main():
                     data=csv_data,
                     file_name="analysis_results.csv",
                     mime="text/csv",
-                    use_container_width=True,
-                    type="primary"
+                    use_container_width=True
                 )
             except Exception as e:
                 st.error(f"Error preparing CSV: {str(e)}")
 
         with col2:
-            # Download JSON (secondary)
+            # Download JSON
             try:
                 json_data = convert_to_json(st.session_state.analysis_result)
                 st.download_button(
