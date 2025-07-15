@@ -7,7 +7,6 @@ import streamlit as st
 from streamlit_oauth import OAuth2Component
 
 from backend import call_gemini_api, convert_to_csv, convert_to_json, get_document_content
-from cache_manager import CacheManager
 from knowledge import O1, EB1
 from oauth_manager import get_oauth_manager
 from prompt import SYSTEM_PROMPT
@@ -68,9 +67,6 @@ def main():
     # Initialize OAuth manager
     oauth_manager = get_oauth_manager()
 
-    # Initialize Cache manager
-    cache_manager = CacheManager()
-
     # Initialize session state
     if 'analysis_result' not in st.session_state:
         st.session_state.analysis_result = None
@@ -79,9 +75,9 @@ def main():
     if 'current_system_prompt' not in st.session_state:
         st.session_state.current_system_prompt = SYSTEM_PROMPT
     if 'use_o1_knowledge' not in st.session_state:
-        st.session_state.use_o1_knowledge = True
+        st.session_state.use_o1_knowledge = False
     if 'use_eb1_knowledge' not in st.session_state:
-        st.session_state.use_eb1_knowledge = True
+        st.session_state.use_eb1_knowledge = False
     if 'upload_mode' not in st.session_state:
         st.session_state.upload_mode = "google_drive"
     if 'uploaded_file' not in st.session_state:
@@ -264,34 +260,6 @@ def main():
         # Clear session state for new analysis
         st.session_state.analysis_result = None
 
-        # Create cache key based on source
-        if st.session_state.upload_mode == "local_upload":
-            cache_key = f"local_file_{uploaded_file.name}_{uploaded_file.size}"
-        else:
-            cache_key = doc_url
-
-        st.session_state.current_url = cache_key
-
-        # Check cache first
-        final_prompt = build_system_prompt()
-        cached_result = cache_manager.get_cached_result(
-            cache_key, final_prompt,
-            st.session_state.use_o1_knowledge,
-            st.session_state.use_eb1_knowledge
-        )
-
-        if cached_result:
-            st.info(f"Found cached result from {cached_result['created_at']}")
-            use_cache = st.button("Use Cached Result", type="secondary")
-            if use_cache:
-                st.session_state.analysis_result = cached_result['analysis_result']
-                st.success("Used cached result!")
-                st.rerun()
-
-            proceed_anyway = st.button("Analyze Anyway", type="primary")
-            if not proceed_anyway:
-                return
-
         # Progress bar and spinner
         with st.spinner("Processing your document..."):
             progress_bar = st.progress(0)
@@ -329,14 +297,6 @@ def main():
                 # Save results to session state
                 st.session_state.analysis_result = result
 
-                # Save to cache
-                if cache_manager.save_to_cache(
-                        cache_key, result, final_prompt,
-                        st.session_state.use_o1_knowledge,
-                        st.session_state.use_eb1_knowledge
-                ):
-                    st.success("Result saved to cache!")
-
                 # Clear progress
                 progress_bar.empty()
                 status_text.empty()
@@ -368,15 +328,30 @@ def main():
             except json.JSONDecodeError:
                 st.text_area("Analysis Result", st.session_state.analysis_result, height=300)
 
-        # Download buttons under results
+        # Download buttons under results - CSV first as primary
         col1, col2 = st.columns(2)
 
         with col1:
-            # Download JSON
+            # Download CSV (primary)
+            try:
+                csv_data = convert_to_csv(st.session_state.analysis_result)
+                st.download_button(
+                    label="📊 Download CSV",
+                    data=csv_data,
+                    file_name="analysis_results.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"Error preparing CSV: {str(e)}")
+
+        with col2:
+            # Download JSON (secondary)
             try:
                 json_data = convert_to_json(st.session_state.analysis_result)
                 st.download_button(
-                    label="Download JSON",
+                    label="📄 Download JSON",
                     data=json_data,
                     file_name="analysis_results.json",
                     mime="application/json",
@@ -384,111 +359,6 @@ def main():
                 )
             except Exception as e:
                 st.error(f"Error preparing JSON: {str(e)}")
-
-        with col2:
-            # Download CSV
-            try:
-                csv_data = convert_to_csv(st.session_state.analysis_result)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_data,
-                    file_name="analysis_results.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            except Exception as e:
-                st.error(f"Error preparing CSV: {str(e)}")
-
-    # Cache History Section
-    st.markdown("---")
-
-    # Get cache stats
-    cache_stats = cache_manager.get_cache_stats()
-
-    with st.expander(f"Cache History ({cache_stats['total_entries']} entries)", expanded=False):
-        if cache_stats['total_entries'] > 0:
-            st.write(f"📊 **Stats:** {cache_stats['unique_urls']} unique URLs, {cache_stats['db_size_mb']} MB")
-
-            # Clear all cache button
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                if st.button("🗑️ Clear All Cache", type="secondary"):
-                    if cache_manager.clear_all_cache():
-                        st.success("Cache cleared!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to clear cache")
-
-            st.markdown("---")
-
-            # Display cached results
-            cached_results = cache_manager.get_all_cached_results()
-
-            for i, result in enumerate(cached_results):
-                with st.container():
-                    col1, col2, col3 = st.columns([3, 1, 1])
-
-                    with col1:
-                        # Display URL (truncated)
-                        url_display = result['doc_url']
-                        if len(url_display) > 60:
-                            url_display = url_display[:60] + "..."
-
-                        st.write(f"**{url_display}**")
-
-                        # Knowledge flags
-                        flags = []
-                        if result['o1_enabled']:
-                            flags.append("O1")
-                        if result['eb1_enabled']:
-                            flags.append("EB1")
-
-                        flag_str = " | ".join(flags) if flags else "No knowledge"
-                        st.caption(f"🗓️ {result['created_at']} | 🧠 {flag_str}")
-
-                    with col2:
-                        # Download buttons
-                        try:
-                            # JSON download
-                            json_data = convert_to_json(result['analysis_result'])
-                            st.download_button(
-                                label="JSON",
-                                data=json_data,
-                                file_name=f"cached_analysis_{result['id']}.json",
-                                mime="application/json",
-                                key=f"json_{result['id']}",
-                                use_container_width=True
-                            )
-                        except:
-                            st.write("JSON error")
-
-                    with col3:
-                        try:
-                            # CSV download
-                            csv_data = convert_to_csv(result['analysis_result'])
-                            st.download_button(
-                                label="CSV",
-                                data=csv_data,
-                                file_name=f"cached_analysis_{result['id']}.csv",
-                                mime="text/csv",
-                                key=f"csv_{result['id']}",
-                                use_container_width=True
-                            )
-                        except:
-                            st.write("CSV error")
-
-                    # Delete button
-                    if st.button(f"🗑️ Delete", key=f"delete_{result['id']}", type="secondary"):
-                        if cache_manager.delete_cache_entry(result['id']):
-                            st.success("Entry deleted!")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete entry")
-
-                    if i < len(cached_results) - 1:
-                        st.markdown("---")
-        else:
-            st.write("No cached results yet. Analyze some documents to build your cache!")
 
 
 if __name__ == "__main__":
