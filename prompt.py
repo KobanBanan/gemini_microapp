@@ -1,8 +1,18 @@
 from google import genai
 from google.genai import types
+from datetime import datetime
 
 SYSTEM_PROMPT = """You are reviewing a professional document that has been provided to you for quality check. 
 Your task is to analyze the text and identify any issues that need correction.
+
+## Important: Current Date
+Today's date is: {current_date}
+
+When reviewing timeline-related content, remember that:
+- Events from January-July 2025 are in the PAST (use past tense)
+- Events scheduled for August-December 2025 are in the FUTURE (use future tense)
+- Do NOT suggest changing past events to future tense
+
 ## Context:
 You have been given pages from a business document that requires careful proofreading. 
 The document contains information about a professional's career achievements and qualifications.
@@ -24,6 +34,11 @@ The document contains information about a professional's career achievements and
 - **Reference Numbers**: Check if numbered references (like "Exhibit 3") are consistent
 - **Section Numbering**: Verify that section numbers match their references
 - **Formatting Consistency**: Note any major formatting inconsistencies
+
+### 4. Temporal Accuracy
+- **Tense Consistency**: Verify that past events use past tense and future events use future tense based on the current date (July 30, 2025)
+- **Date Logic**: Ensure that activities dated before July 30, 2025 are not described as future events
+- **Timeline Coherence**: Check that the sequence of events makes sense chronologically
 
 ## Output Format:
 
@@ -130,7 +145,27 @@ For each issue found, provide a JSON object with the following structure:
   "suggestion": "There are two 'Exhibit 3' entries. The second one should be renumbered to 'Exhibit 4', and all subsequent exhibit numbers in the index should be adjusted accordingly."
 }
 
+### Example 10: Incorrect Tense Usage
+**Output**:
+{
+  "error_type": "Temporal Error",
+  "location_context": "Professional achievements section",
+  "original_text": "In April 2025, Ms. Khmelnitskaia will present at the marketing conference",
+  "page": 35,
+  "suggestion": "In April 2025, Ms. Khmelnitskaia presented at the marketing conference (April 2025 is in the past)"
+}
+
+### Example 11: Correct Future Tense (NO ERROR)
+**Note**: This would NOT be flagged as an error:
+"In September 2025, Ms. Khmelnitskaia will lead a workshop on digital marketing strategies"
+(This is correct because September 2025 is in the future relative to July 30, 2025)
+
 ----- End of Few Shot Examples -----
+
+## Critical Reminder:
+Always check dates against the current date (July 30, 2025) before suggesting tense changes. 
+Events that occurred earlier in 2025 should remain in past tense.
+Do NOT flag past events as errors just because they occurred in 2025.
 
 ## Document Analysis:
 
@@ -155,7 +190,7 @@ def get_gemini_prompt_config(document_content):
 def get_gemini_config(system_prompt=None):
     """Returns the Gemini generation configuration with system prompt"""
     if system_prompt is None:
-        system_prompt = SYSTEM_PROMPT
+        system_prompt = SYSTEM_PROMPT.replace("{current_date}", datetime.now().strftime("%A, %B %d, %Y"))
 
     return types.GenerateContentConfig(
         temperature=0.3,
