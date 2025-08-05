@@ -1,9 +1,13 @@
+from datetime import datetime
+
 from google import genai
 from google.genai import types
-from datetime import datetime
 
 SYSTEM_PROMPT = """You are reviewing a professional document that has been provided to you for quality check. 
 Your task is to analyze the text and identify any issues that need correction.
+
+## Important: Page Number Detection
+The document contains page markers in the format "=== PAGE X ===". Use these markers to accurately determine page numbers for each issue. ALWAYS verify that the page number you assign corresponds to the actual page where the issue appears.
 
 ## Important: Current Date
 Today's date is: {current_date}
@@ -48,9 +52,15 @@ For each issue found, provide a JSON object with the following structure:
   "error_type": "[type of error]",
   "location_context": "[section/paragraph description where error is found]",
   "original_text": "[exact problematic text]",
-  "page": [page number],
+  "page": [page number - MUST match the page marker where the issue appears],
   "suggestion": "[suggested fix]"
 }
+
+## Critical Instructions for Page Numbers:
+- Look for "=== PAGE X ===" markers in the document
+- Assign the page number based on which PAGE marker the issue appears after
+- If text appears before any PAGE marker, assign page 1
+- Double-check that your page number assignment is accurate
 
 
 ----- Few Shot Examples -----

@@ -4,6 +4,7 @@ from typing import Union, BinaryIO, Optional
 
 import PyPDF2
 import docx
+import requests
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -27,16 +28,24 @@ class DocumentProcessor:
             print(f"Error loading Drive service: {e}")
 
     def extract_text_from_docx(self, file_content: Union[bytes, BinaryIO]) -> str:
-        """Extract text from DOCX file"""
+        """Extract text from DOCX file with page breaks"""
         try:
             if isinstance(file_content, bytes):
                 file_content = io.BytesIO(file_content)
 
             doc = docx.Document(file_content)
             text_content = []
+            current_page = 1
+            text_content.append(f"\n=== PAGE {current_page} ===\n")
 
             for paragraph in doc.paragraphs:
-                text_content.append(paragraph.text)
+                # Check for page breaks
+                if paragraph._element.xpath('.//w:br[@w:type="page"]'):
+                    current_page += 1
+                    text_content.append(f"\n\n=== PAGE {current_page} ===\n")
+                
+                if paragraph.text.strip():
+                    text_content.append(paragraph.text)
 
             return "\n".join(text_content)
         except Exception as e:
@@ -44,7 +53,7 @@ class DocumentProcessor:
 
     @staticmethod
     def extract_text_from_pdf(file_content: Union[bytes, BinaryIO]) -> str:
-        """Extract text from PDF file"""
+        """Extract text from PDF file with page markers"""
         try:
             if isinstance(file_content, bytes):
                 file_content = io.BytesIO(file_content)
@@ -52,8 +61,12 @@ class DocumentProcessor:
             reader = PyPDF2.PdfReader(file_content)
             text_content = []
 
-            for page in reader.pages:
-                text_content.append(page.extract_text())
+            for page_num, page in enumerate(reader.pages, 1):
+                page_text = page.extract_text()
+                if page_text.strip():  # Only add non-empty pages
+                    # Add page marker for AI to understand page boundaries
+                    page_marker = f"\n\n=== PAGE {page_num} ===\n"
+                    text_content.append(page_marker + page_text)
 
             return "\n".join(text_content)
         except Exception as e:
@@ -186,9 +199,60 @@ class DocumentProcessor:
                 raise Exception(f"Error downloading file from Google Drive: {e}")
 
     def process_google_drive_url(self, url_or_id: str) -> str:
-        """Process Google Drive URL or ID using OAuth2 credentials"""
-        if not self.credentials:
-            raise Exception("OAuth2 credentials required for Google Drive access. Please authenticate with Google.")
-
+        """Process Google Drive URL or ID with public access fallback"""
         file_id = self.extract_google_drive_id(url_or_id)
-        return self.download_from_google_drive(file_id)
+        
+        # If we have credentials, try authenticated access first
+        if self.credentials:
+            try:
+                return self.download_from_google_drive(file_id)
+            except Exception as auth_error:
+                # If authenticated access fails, try public access
+                pass
+        
+        # Try public access methods
+        try:
+            return self._try_public_google_drive_access(file_id)
+        except Exception as public_error:
+            # If both public and authenticated failed, require OAuth2
+            if not self.credentials:
+                raise Exception("OAuth2 credentials required for Google Drive access. Please authenticate with Google.")
+            else:
+                # Re-raise the original authenticated error
+                return self.download_from_google_drive(file_id)
+    
+    def _try_public_google_drive_access(self, file_id: str) -> str:
+        """Try to access Google Drive file as public document"""
+        
+        # Try different public access URLs
+        public_urls = [
+            f"https://drive.google.com/uc?export=download&id={file_id}",
+            f"https://docs.google.com/document/d/{file_id}/export?format=txt",
+            f"https://docs.google.com/document/d/{file_id}/export?format=docx",
+            f"https://docs.google.com/presentation/d/{file_id}/export?format=txt",
+            f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv"
+        ]
+        
+        for url in public_urls:
+            try:
+                response = requests.get(url, timeout=30)
+                if response.status_code == 200 and response.content:
+                    # Handle different content types
+                    if 'txt' in url or 'csv' in url:
+                        return response.text
+                    elif 'docx' in url:
+                        return self.extract_text_from_docx(response.content)
+                    else:
+                        # Try to detect file type from content
+                        content = response.content
+                        if content.startswith(b'PK'):  # ZIP/DOCX signature
+                            return self.extract_text_from_docx(content)
+                        elif content.startswith(b'%PDF'):  # PDF signature
+                            return self.extract_text_from_pdf(content)
+                        else:
+                            # Try as text
+                            return content.decode('utf-8', errors='ignore')
+            except Exception:
+                continue
+        
+        raise Exception("Could not access file as public document. File may be private or does not exist.")

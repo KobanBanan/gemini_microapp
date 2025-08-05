@@ -1,3 +1,4 @@
+"""Google OAuth2 Manager for handling Google API authentication and document access"""
 import requests
 import streamlit as st
 from google.auth.transport.requests import Request

@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 from google import genai
 
-from document_processor import DocumentProcessor
+from docs.document_processor import DocumentProcessor
 from prompt import get_gemini_prompt_config, get_gemini_config
 
 
@@ -78,20 +78,70 @@ def call_gemini_api(doc_content, api_key, system_prompt=None):
 
 
 def convert_to_csv(json_data):
-    """Convert JSON response to CSV"""
+    """Convert JSON response to CSV with enhanced formatting"""
     try:
         data = json.loads(json_data)
-        df = pd.DataFrame(data)
-        return df.to_csv(index=False)
+        if isinstance(data, list) and len(data) > 0:
+            df = pd.DataFrame(data)
+
+            # Reorder columns for better readability
+            preferred_order = ['error_type', 'page', 'location_context', 'original_text', 'suggestion']
+            columns = [col for col in preferred_order if col in df.columns] + [col for col in df.columns if
+                                                                               col not in preferred_order]
+            df = df[columns]
+
+            # Format column names
+            df.columns = [
+                col.replace('_', ' ').title()
+                for col in df.columns
+            ]
+
+            return df.to_csv(index=False, encoding='utf-8-sig')
+        else:
+            return "No data to export"
     except Exception as e:
         raise Exception(f"Error converting to CSV: {str(e)}")
 
 
 def convert_to_json(json_data):
-    """Format JSON response"""
+    """Format JSON response with metadata"""
     try:
         data = json.loads(json_data)
-        return json.dumps(data, indent=2, ensure_ascii=False)
+
+        # Add metadata
+        formatted_data = {
+            "metadata": {
+                "total_issues": len(data) if isinstance(data, list) else 1,
+                "export_timestamp": pd.Timestamp.now().isoformat(),
+                "summary": {
+                    "error_types": {},
+                    "pages_with_issues": set()
+                }
+            },
+            "issues": data
+        }
+
+        # Calculate summary statistics
+        if isinstance(data, list):
+            for item in data:
+                error_type = item.get('error_type', 'Unknown')
+                page = item.get('page')
+
+                # Count error types
+                if error_type in formatted_data["metadata"]["summary"]["error_types"]:
+                    formatted_data["metadata"]["summary"]["error_types"][error_type] += 1
+                else:
+                    formatted_data["metadata"]["summary"]["error_types"][error_type] = 1
+
+                # Track pages with issues
+                if page:
+                    formatted_data["metadata"]["summary"]["pages_with_issues"].add(page)
+
+        # Convert set to sorted list for JSON serialization
+        pages_with_issues = sorted(list(formatted_data["metadata"]["summary"]["pages_with_issues"]))
+        formatted_data["metadata"]["summary"]["pages_with_issues"] = pages_with_issues
+
+        return json.dumps(formatted_data, indent=2, ensure_ascii=False)
     except Exception as e:
         raise Exception(f"Error formatting JSON: {str(e)}")
 
@@ -107,7 +157,7 @@ def process_google_drive_file(url_or_id, oauth_manager=None):
     credentials = None
     if oauth_manager and oauth_manager.is_authenticated():
         credentials = oauth_manager.get_credentials()
-    
+
     processor = DocumentProcessor(oauth_credentials=credentials)
     return processor.process_google_drive_url(url_or_id)
 
@@ -118,8 +168,13 @@ def get_document_content(source_type, source_data, oauth_manager=None):
         # Use existing logic for Google Docs
         return fetch_doc_content(source_data, oauth_manager)
     elif source_type == "google_drive":
-        # Use new logic for Google Drive files with OAuth2
-        return process_google_drive_file(source_data, oauth_manager)
+        # Try public access first, then authenticated if needed
+        try:
+            # First try the public access method which works for Google Docs
+            return fetch_doc_content(source_data, oauth_manager)
+        except Exception as public_error:
+            # If public access fails, try authenticated Google Drive API
+            return process_google_drive_file(source_data, oauth_manager)
     elif source_type == "uploaded_file":
         # Process uploaded file
         return process_uploaded_file(source_data)
