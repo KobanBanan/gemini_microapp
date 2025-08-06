@@ -1,5 +1,7 @@
 import difflib
 import html
+import re
+import datetime
 
 
 def validate_page_numbers(parsed_result, max_pages=None):
@@ -21,14 +23,13 @@ def validate_page_numbers(parsed_result, max_pages=None):
 def get_navigation_info(upload_mode, doc_url, page_number, original_text):
     """Generate navigation information based on document source"""
     if upload_mode == "google_drive" and doc_url:
-        # Create Google Docs page link
+        # For Google Docs, don't show navigation links (they're not reliable)
         if 'docs.google.com' in doc_url:
-            base_url = doc_url.split('#')[0]  # Remove any existing fragments
-            page_link = f"{base_url}#bookmark=page.page{page_number}"
+            search_text = original_text[:30].strip()
             return {
-                "type": "link",
-                "url": page_link,
-                "text": f"🔗 Open Page {page_number} in Google Docs"
+                "type": "search",
+                "instruction": f"🔍 Search in Google Docs for: '{search_text}'",
+                "page_info": f"Located on Page {page_number}"
             }
         else:
             # Google Drive file but not Google Docs
@@ -126,3 +127,27 @@ def build_system_prompt_with_knowledge(base_prompt, use_o1_knowledge, use_eb1_kn
             prompt += eb1_content + "\n\n"
 
     return prompt
+
+
+def extract_google_drive_filename(url):
+    """Extract a clean filename from Google Drive URL"""
+    # Extract document ID from URL
+    doc_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if doc_id_match:
+        doc_id = doc_id_match.group(1)
+        return f"GoogleDoc_{doc_id[:10]}"
+    
+    # If it's a sharing URL, extract useful part
+    if 'sharing' in url and 'usp=' in url:
+        # Extract before parameters  
+        clean_url = url.split('?')[0] if '?' in url else url
+        clean_url = clean_url.split('#')[0] if '#' in clean_url else clean_url
+        
+        # Try to get last meaningful part
+        parts = [p for p in clean_url.split('/') if p and p != 'edit' and p != 'sharing']
+        if parts:
+            return f"GoogleDoc_{parts[-1][:15]}"
+    
+    # Fallback to timestamp-based name
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    return f"GoogleDoc_{timestamp}"

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sqlite3
 from typing import Optional, List, Dict, Any
@@ -31,12 +32,16 @@ class DatabaseManager:
     def save_analysis_result(self, file_url: str, file_name: str, user_email: str,
                              analysis_result: Dict[str, Any]) -> bool:
         """Save analysis result to database"""
+        logging.info(f"Attempting to save analysis: file_url={file_url}, file_name={file_name}, user_email={user_email}")
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         try:
             # Convert analysis result to JSON string
             result_json = json.dumps(analysis_result, ensure_ascii=False, indent=2)
+            
+            logging.info(f"Analysis result JSON length: {len(result_json)}")
 
             cursor.execute('''
                 INSERT INTO analysis_history 
@@ -45,10 +50,15 @@ class DatabaseManager:
             ''', (file_url, file_name, user_email, result_json))
 
             conn.commit()
+            logging.info("Analysis saved to database successfully")
             conn.close()
             return True
         except sqlite3.Error as e:
-            print(f"Error saving analysis result: {e}")
+            logging.error(f"Error saving analysis result: {e}")
+            conn.close()
+            return False
+        except Exception as e:
+            logging.error(f"Unexpected error saving analysis result: {e}")
             conn.close()
             return False
 

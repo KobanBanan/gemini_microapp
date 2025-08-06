@@ -1,4 +1,5 @@
 import io
+import logging
 import re
 from typing import Union, BinaryIO, Optional
 
@@ -93,26 +94,37 @@ class DocumentProcessor:
 
     def process_uploaded_file(self, uploaded_file) -> str:
         """Process uploaded file based on its type"""
-        file_type = uploaded_file.type
-        file_content = uploaded_file.read()
+        if uploaded_file is None:
+            logging.error("uploaded_file is None")
+            raise ValueError("Uploaded file cannot be None")
+        
+        try:
+            file_type = uploaded_file.type
+            file_content = uploaded_file.read()
 
-        if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            return self.extract_text_from_docx(file_content)
-        elif file_type == "application/pdf":
-            return self.extract_text_from_pdf(file_content)
-        elif file_type == "text/plain":
-            return self.extract_text_from_txt(file_content)
-        else:
-            # Try to determine type by extension
-            file_name = uploaded_file.name.lower()
-            if file_name.endswith('.docx'):
+            if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
                 return self.extract_text_from_docx(file_content)
-            elif file_name.endswith('.pdf'):
+            elif file_type == "application/pdf":
                 return self.extract_text_from_pdf(file_content)
-            elif file_name.endswith('.txt'):
+            elif file_type == "text/plain":
                 return self.extract_text_from_txt(file_content)
             else:
-                raise Exception(f"Unsupported file type: {file_type}")
+                # Try to determine type by extension
+                file_name = uploaded_file.name.lower() if uploaded_file.name else ""
+                
+                if file_name.endswith('.docx'):
+                    return self.extract_text_from_docx(file_content)
+                elif file_name.endswith('.pdf'):
+                    return self.extract_text_from_pdf(file_content)
+                elif file_name.endswith('.txt'):
+                    return self.extract_text_from_txt(file_content)
+                else:
+                    error_msg = f"Unsupported file type: {file_type}"
+                    logging.error(error_msg)
+                    raise Exception(error_msg)
+        except Exception as e:
+            logging.error(f"Error in process_uploaded_file: {str(e)}")
+            raise
 
     @staticmethod
     def extract_google_drive_id(url_or_id: str) -> str:
@@ -200,26 +212,36 @@ class DocumentProcessor:
 
     def process_google_drive_url(self, url_or_id: str) -> str:
         """Process Google Drive URL or ID with public access fallback"""
-        file_id = self.extract_google_drive_id(url_or_id)
+        if url_or_id is None:
+            logging.error("url_or_id is None")
+            raise ValueError("URL or ID cannot be None")
         
-        # If we have credentials, try authenticated access first
-        if self.credentials:
-            try:
-                return self.download_from_google_drive(file_id)
-            except Exception as auth_error:
-                # If authenticated access fails, try public access
-                pass
-        
-        # Try public access methods
         try:
-            return self._try_public_google_drive_access(file_id)
-        except Exception as public_error:
-            # If both public and authenticated failed, require OAuth2
-            if not self.credentials:
-                raise Exception("OAuth2 credentials required for Google Drive access. Please authenticate with Google.")
-            else:
-                # Re-raise the original authenticated error
-                return self.download_from_google_drive(file_id)
+            file_id = self.extract_google_drive_id(url_or_id)
+            
+            # If we have credentials, try authenticated access first
+            if self.credentials:
+                try:
+                    return self.download_from_google_drive(file_id)
+                except Exception:
+                    # If authenticated access fails, try public access
+                    pass
+            
+            # Try public access methods
+            try:
+                return self._try_public_google_drive_access(file_id)
+            except Exception:
+                # If both public and authenticated failed, require OAuth2
+                if not self.credentials:
+                    error_msg = "OAuth2 credentials required for Google Drive access. Please authenticate with Google."
+                    logging.error(error_msg)
+                    raise Exception(error_msg)
+                else:
+                    # Re-raise the original authenticated error
+                    return self.download_from_google_drive(file_id)
+        except Exception as e:
+            logging.error(f"Error in process_google_drive_url: {str(e)}")
+            raise
     
     def _try_public_google_drive_access(self, file_id: str) -> str:
         """Try to access Google Drive file as public document"""

@@ -10,3 +10,4 @@ google-auth-oauthlib
 python-docx
 PyPDF2
 pyyaml
+tenacity
